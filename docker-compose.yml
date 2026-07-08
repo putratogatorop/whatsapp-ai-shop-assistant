@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile
     env_file: .env
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       - postgres
       - redis
@@ -28,12 +28,16 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: whatsapp_agent
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Bound to localhost only — other containers reach Postgres over the
+      # internal Docker network regardless of this mapping. This just keeps
+      # it unreachable from outside the host even if the cloud firewall
+      # config ever changes.
+      - "127.0.0.1:5432:5432"
     restart: unless-stopped
 
   redis:
@@ -47,13 +51,13 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     ports:
-      - "6333:6333"
+      - "127.0.0.1:6333:6333"
     restart: unless-stopped
 
   n8n:
     image: n8nio/n8n:1.71.3
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       - N8N_HOST=localhost
       - N8N_PORT=5678
