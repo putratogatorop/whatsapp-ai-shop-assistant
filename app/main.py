@@ -54,18 +54,25 @@ async def receive_webhook(request: Request) -> dict:
 
     payload = await request.json()
     for msg in parse_incoming_messages(payload):
-        whatsapp_client.mark_as_read(msg.message_id)
+        try:
+            whatsapp_client.mark_as_read(msg.message_id)
 
-        if msg.type == "text":
-            reply = run_agent(msg.wa_id, msg.text, contact_name=msg.contact_name)
-            whatsapp_client.send_text(msg.wa_id, reply)
+            if msg.type == "text":
+                reply = run_agent(msg.wa_id, msg.text, contact_name=msg.contact_name)
+                whatsapp_client.send_text(msg.wa_id, reply)
 
-        elif msg.type == "image":
-            # OCR + DB update happen off the request path so the webhook
-            # response stays fast (Meta expects a 200 within a few seconds).
-            whatsapp_client.send_text(
-                msg.wa_id, "Got your payment proof, verifying it now — one moment!"
-            )
-            process_payment_proof.delay(msg.wa_id, msg.media_id)
+            elif msg.type == "image":
+                # OCR + DB update happen off the request path so the webhook
+                # response stays fast (Meta expects a 200 within a few seconds).
+                whatsapp_client.send_text(
+                    msg.wa_id, "Got your payment proof, verifying it now — one moment!"
+                )
+                process_payment_proof.delay(msg.wa_id, msg.media_id)
+        except Exception:
+            # Always ack Meta with 200 even if processing failed — a 5xx here
+            # makes Meta re-deliver the same event repeatedly (retry storm),
+            # which for an LLM-backed handler means repeatedly re-burning API
+            # quota on a message we already know we can't currently process.
+            logger.exception("Failed to process incoming message wa_id=%s", msg.wa_id)
 
     return {"status": "received"}
