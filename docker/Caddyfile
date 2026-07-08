@@ -3,9 +3,7 @@
 # Caddy issues and renews the certificate automatically as long as this
 # hostname resolves to the box's static IP and ports 80/443 are open.
 #
-# Replace with your registered DuckDNS subdomain before deploying, e.g.
-# whatsapp-ai-demo.duckdns.org — register it free at https://www.duckdns.org
-your-subdomain.duckdns.org {
+tokobot-ai.duckdns.org {
     encode gzip zstd
     reverse_proxy api:8000
 }
