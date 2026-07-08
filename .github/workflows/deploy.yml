@@ -1,0 +1,71 @@
+# =============================================================================
+# Deploy to Lightsail — WhatsApp AI Shop Assistant
+# =============================================================================
+# Whole app runs in Docker Compose, so deploy = SSH in, pull, rebuild.
+#
+# Required GitHub Secrets:
+#   LIGHTSAIL_SSH_KEY  — private key (PEM, no passphrase)
+#   LIGHTSAIL_HOST     — Lightsail static IP
+#   LIGHTSAIL_USER     — ubuntu (default Lightsail Ubuntu user)
+#   APP_HOSTNAME       — the DuckDNS hostname, e.g. whatsapp-ai-demo.duckdns.org
+#
+# Trigger: manual only (workflow_dispatch). Uncomment the push block to
+# auto-deploy on every push to main once you're confident in the setup.
+# =============================================================================
+
+name: Deploy to Lightsail
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy via docker compose
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.LIGHTSAIL_SSH_KEY }}" > ~/.ssh/lightsail_deploy
+          chmod 600 ~/.ssh/lightsail_deploy
+          ssh-keyscan -H "${{ secrets.LIGHTSAIL_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+          cat >> ~/.ssh/config <<EOF
+          Host lightsail
+            HostName ${{ secrets.LIGHTSAIL_HOST }}
+            User ${{ secrets.LIGHTSAIL_USER }}
+            IdentityFile ~/.ssh/lightsail_deploy
+            StrictHostKeyChecking yes
+            ConnectTimeout 30
+          EOF
+
+      - name: Deploy — git pull + docker compose up
+        run: |
+          ssh lightsail bash -s <<'REMOTE'
+            set -euo pipefail
+            cd /opt/whatsapp-agent
+            git fetch origin
+            git reset --hard origin/main
+            docker compose --profile prod up -d --build
+            docker image prune -f
+          REMOTE
+
+      - name: Health check
+        run: |
+          URL="https://${{ secrets.APP_HOSTNAME }}/health"
+          echo "Checking $URL ..."
+          for i in $(seq 1 12); do
+            HTTP=$(curl -sf -o /tmp/health.json -w "%{http_code}" "$URL" || true)
+            if [ "$HTTP" = "200" ]; then
+              echo "OK (attempt $i): $(cat /tmp/health.json)"
+              exit 0
+            fi
+            echo "  attempt $i — HTTP $HTTP, retrying in 5s..."
+            sleep 5
+          done
+          echo "FAILED: $URL did not return 200 after 60s"
+          exit 1
