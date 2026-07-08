@@ -1,0 +1,9 @@
+# Reverse proxy + automatic HTTPS (Let's Encrypt) for the AWS Lightsail deploy.
+# Meta requires the WhatsApp webhook URL to be HTTPS — Caddy handles the
+# certificate automatically as long as DNS for your domain points at this
+# instance's static IP.
+#
+# Replace with your actual domain before deploying.
+your-domain.com {
+    reverse_proxy api:8000
+}
