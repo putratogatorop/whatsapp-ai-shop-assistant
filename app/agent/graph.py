@@ -1,3 +1,4 @@
+from groq import BadRequestError
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
@@ -8,6 +9,7 @@ from app.db.session import get_session
 from app.llm.factory import get_chat_model
 
 HISTORY_TURNS = 10
+TOOL_CALL_RETRY_ATTEMPTS = 3
 
 
 def _history_to_messages(history) -> list:
@@ -32,7 +34,23 @@ def run_agent(wa_id: str, user_message: str, contact_name: str | None = None) ->
     messages.extend(_history_to_messages(history))
     messages.append(HumanMessage(content=user_message))
 
-    result = agent.invoke({"messages": messages})
+    # Groq's hosted Llama models occasionally emit malformed function-call
+    # syntax instead of valid tool-call JSON (~intermittent, prompt-dependent,
+    # not a rate-limit issue) — a bare retry reliably succeeds, so retry a
+    # few times before giving up rather than surfacing a 500 to the customer.
+    last_error: BadRequestError | None = None
+    for attempt in range(TOOL_CALL_RETRY_ATTEMPTS):
+        try:
+            result = agent.invoke({"messages": messages})
+            break
+        except BadRequestError as exc:
+            if getattr(exc, "body", None) and exc.body.get("error", {}).get("code") == "tool_use_failed":
+                last_error = exc
+                continue
+            raise
+    else:
+        raise last_error
+
     reply = result["messages"][-1].content
 
     with get_session() as db:

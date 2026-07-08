@@ -8,3 +8,4 @@ venv/
 data/scraped/*
 !data/scraped/.gitkeep
 .DS_Store
+.claude/
